@@ -12,12 +12,11 @@ I’ll also correct command typos and ordering.
 Create a file named **`.env`** in the project root:
 
 ```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/securebank?schema=public
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/securebank?schema=public"
 
-JWT_SECRET=super-secret-key-change-me-in-production
-
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
+JWT_SECRET="super-secret-key-change-me-in-production"
+UPSTASH_REDIS_REST_URL=""
+UPSTASH_REDIS_REST_TOKEN=""
 ```
 
 ⚠️ **Do not commit `.env` to git**
