@@ -7,6 +7,7 @@ import { useState, useEffect } from "react"
 import { api } from "@/lib/api"
 
 interface SecurityData {
+  receiveAnomalyProtection: boolean
   sessions: {
     id: string
     type: string
@@ -28,12 +29,15 @@ export default function SecurityPage() {
   const [data, setData] = useState<SecurityData | null>(null)
   const [loading, setLoading] = useState(true)
   const [twoFAEnabled, setTwoFAEnabled] = useState(false)
+  const [anomalyProtectionEnabled, setAnomalyProtectionEnabled] = useState(false)
+  const [updating, setUpdating] = useState(false)
 
   useEffect(() => {
     const loadData = async () => {
       try {
         const res = await api.getSecurityData()
         setData(res)
+        setAnomalyProtectionEnabled(res.receiveAnomalyProtection)
       } catch (e) {
         console.error("Failed to load security data", e)
       } finally {
@@ -42,6 +46,35 @@ export default function SecurityPage() {
     }
     loadData()
   }, [])
+
+  const handleAnomalyProtectionToggle = async () => {
+    setUpdating(true)
+    try {
+      const newValue = !anomalyProtectionEnabled
+      const response = await fetch('/api/user/security', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          receiveAnomalyProtection: newValue
+        })
+      })
+      
+      if (response.ok) {
+        setAnomalyProtectionEnabled(newValue)
+        if (data) {
+          setData({ ...data, receiveAnomalyProtection: newValue })
+        }
+      } else {
+        console.error('Failed to update anomaly protection setting')
+      }
+    } catch (error) {
+      console.error('Error updating anomaly protection:', error)
+    } finally {
+      setUpdating(false)
+    }
+  }
 
   if (loading) return <div className="p-8 text-center">Loading security data...</div>
 
@@ -84,6 +117,24 @@ export default function SecurityPage() {
               className={twoFAEnabled ? "bg-green-600 hover:bg-green-700" : "bg-slate-300 hover:bg-slate-400"}
             >
               {twoFAEnabled ? "Enabled" : "Enable"}
+            </Button>
+          </div>
+
+          {/* Anomaly Protection */}
+          <div className="flex items-center justify-between p-4 border border-slate-200 rounded-lg">
+            <div className="flex items-center gap-4">
+              <Shield className="w-5 h-5 text-slate-600" />
+              <div>
+                <p className="font-medium text-slate-900">Anomaly Protection</p>
+                <p className="text-sm text-slate-600">Block unusually large incoming transfers based on your receiving patterns</p>
+              </div>
+            </div>
+            <Button
+              onClick={handleAnomalyProtectionToggle}
+              disabled={updating}
+              className={anomalyProtectionEnabled ? "bg-green-600 hover:bg-green-700" : "bg-slate-300 hover:bg-slate-400"}
+            >
+              {updating ? "Updating..." : anomalyProtectionEnabled ? "Enabled" : "Enable"}
             </Button>
           </div>
 

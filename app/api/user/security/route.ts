@@ -28,7 +28,14 @@ export async function GET() {
             take: 5
         })
 
+        // Fetch user's current security settings
+        const userSettings = await db.user.findUnique({
+            where: { id: userId },
+            select: { receiveAnomalyProtection: true }
+        })
+
         return NextResponse.json({
+            receiveAnomalyProtection: userSettings?.receiveAnomalyProtection ?? false,
             sessions: sessions.map((s: any) => ({
                 id: s.id,
                 score: s.score,
@@ -48,6 +55,39 @@ export async function GET() {
 
     } catch (error) {
         console.error('Security API Error:', error)
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+    }
+}
+
+export async function PUT(request: Request) {
+    try {
+        const session = await getSession()
+        if (!session || !session.id) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        }
+
+        const body = await request.json()
+        const { receiveAnomalyProtection } = body
+
+        // Validate input
+        if (typeof receiveAnomalyProtection !== 'boolean') {
+            return NextResponse.json({ error: 'receiveAnomalyProtection must be a boolean' }, { status: 400 })
+        }
+
+        // Update user's security setting
+        const updatedUser = await db.user.update({
+            where: { id: session.id as string },
+            data: { receiveAnomalyProtection },
+            select: { receiveAnomalyProtection: true }
+        })
+
+        return NextResponse.json({
+            success: true,
+            receiveAnomalyProtection: updatedUser.receiveAnomalyProtection
+        })
+
+    } catch (error) {
+        console.error('Security Settings Update Error:', error)
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
     }
 }

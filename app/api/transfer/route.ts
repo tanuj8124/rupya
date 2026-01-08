@@ -46,20 +46,61 @@ export async function POST(request: Request) {
         // ------------------ FETCH RECIPIENT ------------------
         const recipient = await db.user.findUnique({
             where: { email: recipientEmail },
-            include: { accounts: true }
+            include: {
+                accounts: true,
+                transactions: {
+                    where: {
+                        type: 'INCOME',
+                        date: {
+                            gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+                        }
+                    },
+                    select: { amount: true }
+                }
+            }
         })
 
         if (!recipient || !recipient.accounts[0])
             return NextResponse.json({ error: 'Recipient not found' }, { status: 404 })
 
+        // ================== 🔐 INCOMING PROTECTION (RECIPIENT SIDE) ==================
+        // Check if recipient has anomaly protection enabled
+        if (recipient.receiveAnomalyProtection) {
+            // Calculate recipient's average received amount over last 7 days
+            const receivedAmounts = recipient.transactions.map(t => t.amount)
+            const avgReceiveAmount = receivedAmounts.length > 0
+                ? receivedAmounts.reduce((a, b) => a + b, 0) / receivedAmounts.length
+                : 0
+
+            // Define anomaly threshold (default multiplier = 3)
+            const ANOMALY_MULTIPLIER = 3
+            const anomalyThreshold = avgReceiveAmount * ANOMALY_MULTIPLIER
+
+            // Check if incoming amount is anomalous
+            const isAnomalous = avgReceiveAmount > 0 && amount > anomalyThreshold
+
+            if (isAnomalous) {
+                // Log the blocked attempt for security monitoring
+                console.warn(`Anomaly protection triggered: Recipient ${recipient.id} blocked incoming transfer of $${amount} (threshold: $${anomalyThreshold})`)
+
+                return NextResponse.json({
+                    error: 'Transaction blocked: Recipient has enabled protection against unusually large incoming transfers',
+                    reason: `Incoming amount $${amount.toFixed(2)} exceeds recipient’s 7-day average receiving pattern by more than ${ANOMALY_MULTIPLIER}x`,
+                    riskReason: 'Recipient anomaly protection triggered',
+                    status: 'BLOCKED'
+                }, { status: 403 })
+            }
+        }
+
         // ================== 🧠 FRAUD ENGINE ==================
 
         // 🔁 Redis cache
-        const cacheKey = `risk:${sender.id}:${amount}`
+        const cacheKey = `risk:${sender.id}:${recipient.id}:${amount}`
+
         const cached = await redis.get(cacheKey)
         let finalRiskScore: number
 
-        if (cached) {
+        if (cached !== null) {
             finalRiskScore = Number(cached)
         } else {
             // ---- Historical metrics ----
