@@ -1,100 +1,220 @@
-import pandas as pd
-from sklearn.ensemble import IsolationForest
-import joblib
 import os
-import psycopg2
-from sqlalchemy import create_engine
+import joblib
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sklearn.ensemble import IsolationForest
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+    roc_curve
+)
 
 load_dotenv()
 
-# 1. Database Connection
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/securebank?schema=public")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/securebank?schema=public"
+)
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "fraud_model.pkl")
+
 
 def fetch_data_and_train():
-    print("🔄 Connecting to database to fetch training data...")
     try:
-        # Robust URL parsing
-        # Remove query parameters that might confuse psycopg2
+        print("🔄 Connecting to database...")
+
         base_url = DATABASE_URL.split("?")[0]
         clean_url = base_url.replace("postgresql://", "postgresql+psycopg2://")
-        
-        print(f"📡 Using connection: {base_url}") # Don't log full URL with password in prod, but ok here
-        
         engine = create_engine(clean_url)
-        
+
         query = """
-        SELECT "userId", "amount", "date" as created_at
+        SELECT "userId", "amount", "date" AS created_at
         FROM "Transaction"
         ORDER BY "date" ASC
         """
+
         df = pd.read_sql(query, engine)
-        
-        if len(df) < 5:
-            print("⚠️ Not enough data in database to train a robust model. Using synthetic data fallback.")
-            # Create some "normal" patterns
-            synthetic_data = [
-                [100, 1, 1, 0], [150, 2, 1, 1], [50, 1, 1, 2], [200, 3, 1, 1],
-                [120, 2, 1, 0], [80, 1, 1, 1], [110, 2, 1, 0], [90, 1, 1, 0]
-            ]
-            # Add some "anomalies"
-            synthetic_data += [[5000, 15, 8, 12], [3000, 10, 5, 10]]
-            
-            X = pd.DataFrame(synthetic_data, columns=[
-                "avg_amount_7d", "tx_velocity_1h", "device_change_freq", "time_of_day_deviation"
-            ])
-        else:
-            print(f"📊 Processing {len(df)} transactions from database...")
-            
-            # Feature Engineering logic
-            df['created_at'] = pd.to_datetime(df['created_at'])
-            df['hour'] = df['created_at'].dt.hour
-            
-            # Calculate user mean hour
-            user_means = df.groupby('userId')['hour'].mean().to_dict()
-            
-            features = []
-            for idx, row in df.iterrows():
-                u_id = row['userId']
-                curr_time = row['created_at']
-                
-                # avg_amount_7d
-                week_ago = curr_time - pd.Timedelta(days=7)
-                avg_7d = df[(df['userId'] == u_id) & (df['created_at'] >= week_ago) & (df['created_at'] < curr_time)]['amount'].mean()
-                if pd.isna(avg_7d): avg_7d = row['amount'] # Fallback to current if first tx
-                
-                # tx_velocity_1h
-                hour_ago = curr_time - pd.Timedelta(hours=1)
-                velocity_1h = df[(df['userId'] == u_id) & (df['created_at'] >= hour_ago) & (df['created_at'] < curr_time)].shape[0]
-                
-                # time_of_day_deviation
-                mean_h = user_means.get(u_id, 12)
-                dev = abs(row['hour'] - mean_h)
-                
-                features.append([avg_7d, velocity_1h, 1, dev]) # 1 is placeholder for device_change_freq
-            
-            X = pd.DataFrame(features, columns=[
-                "avg_amount_7d", "tx_velocity_1h", "device_change_freq", "time_of_day_deviation"
+
+        # ------------------------------------------------------------------
+        # FALLBACK: SYNTHETIC DATA
+        # ------------------------------------------------------------------
+        if len(df) < 10:
+            print("⚠️ Not enough data — using synthetic fallback")
+
+            normal = np.random.normal(loc=[100, 1, 1, 1], scale=[20, 0.5, 0, 0.5], size=(200, 4))
+            anomalies = np.array([
+                [5000, 15, 1, 12],
+                [3000, 10, 1, 10],
+                [8000, 20, 1, 15]
             ])
 
-        # 2. Train Isolation Forest
-        print("🧠 Training Isolation Forest model...")
+            X = pd.DataFrame(
+                np.vstack([normal, anomalies]),
+                columns=[
+                    "avg_amount_7d",
+                    "tx_velocity_1h",
+                    "device_change_freq",
+                    "time_of_day_deviation",
+                ],
+            )
+
+        # ------------------------------------------------------------------
+        # REAL FEATURE ENGINEERING
+        # ------------------------------------------------------------------
+        else:
+            print(f"📊 Processing {len(df)} transactions")
+
+            df["created_at"] = pd.to_datetime(df["created_at"])
+            df["hour"] = df["created_at"].dt.hour
+
+            user_mean_hour = df.groupby("userId")["hour"].mean().to_dict()
+            features = []
+
+            for _, row in df.iterrows():
+                uid = row["userId"]
+                now = row["created_at"]
+
+                week_ago = now - pd.Timedelta(days=7)
+                avg_7d = df[
+                    (df["userId"] == uid)
+                    & (df["created_at"] >= week_ago)
+                    & (df["created_at"] < now)
+                ]["amount"].mean()
+
+                if pd.isna(avg_7d):
+                    avg_7d = row["amount"]
+
+                hour_ago = now - pd.Timedelta(hours=1)
+                velocity_1h = df[
+                    (df["userId"] == uid)
+                    & (df["created_at"] >= hour_ago)
+                    & (df["created_at"] < now)
+                ].shape[0]
+
+                deviation = abs(row["hour"] - user_mean_hour.get(uid, 12))
+
+                features.append([avg_7d, velocity_1h, 1, deviation])
+
+            X = pd.DataFrame(
+                features,
+                columns=[
+                    "avg_amount_7d",
+                    "tx_velocity_1h",
+                    "device_change_freq",
+                    "time_of_day_deviation",
+                ],
+            )
+
+        # ------------------------------------------------------------------
+        # TRAIN / TEST SPLIT
+        # ------------------------------------------------------------------
+        X_train, X_test = train_test_split(X, test_size=0.25, random_state=42)
+
+        # ------------------------------------------------------------------
+        # TRAIN MODEL
+        # ------------------------------------------------------------------
         model = IsolationForest(
             n_estimators=200,
             contamination=0.03,
-            random_state=42
+            random_state=42,
         )
-        model.fit(X)
 
-        # 3. Save Model
-        model_path = os.path.join(os.path.dirname(__file__), "fraud_model.pkl")
-        joblib.dump(model, model_path)
-        print(f"✅ Model trained on {len(X)} samples and saved to {model_path}")
+        print("🧠 Training Isolation Forest...")
+        model.fit(X_train)
+
+        # ------------------------------------------------------------------
+        # PREDICTIONS & SCORES
+        # ------------------------------------------------------------------
+        scores = model.decision_function(X_test)
+        y_pred = np.where(model.predict(X_test) == -1, 1, 0)
+
+        # ------------------------------------------------------------------
+        # PROXY GROUND TRUTH (TOP 3%)
+        # ------------------------------------------------------------------
+        threshold = np.percentile(scores, 3)
+        y_true = np.where(scores <= threshold, 1, 0)
+
+        # ------------------------------------------------------------------
+        # METRICS
+        # ------------------------------------------------------------------
+        print("\n📊 Evaluation Metrics (Proxy Labels)")
+        print(classification_report(y_true, y_pred, target_names=["Normal", "Fraud"]))
+
+        roc_auc = roc_auc_score(y_true, -scores)
+        print(f"ROC-AUC: {roc_auc:.4f}")
+
+        # ------------------------------------------------------------------
+        # CONFUSION MATRIX
+        # ------------------------------------------------------------------
+        cm = confusion_matrix(y_true, y_pred)
+        plt.figure(figsize=(5, 4))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
+        plt.title("Confusion Matrix")
+        plt.xlabel("Predicted")
+        plt.ylabel("Actual")
+        plt.tight_layout()
+        plt.show()
+
+        # ------------------------------------------------------------------
+        # ROC CURVE
+        # ------------------------------------------------------------------
+        fpr, tpr, _ = roc_curve(y_true, -scores)
+        plt.figure(figsize=(6, 4))
+        plt.plot(fpr, tpr, label=f"AUC={roc_auc:.3f}")
+        plt.plot([0, 1], [0, 1], linestyle="--")
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.title("ROC Curve")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        # ------------------------------------------------------------------
+        # SCORE DISTRIBUTION
+        # ------------------------------------------------------------------
+        plt.figure(figsize=(6, 4))
+        sns.histplot(scores, bins=50, kde=True)
+        plt.axvline(threshold, color="red", linestyle="--", label="Fraud Threshold")
+        plt.title("Anomaly Score Distribution")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        # ------------------------------------------------------------------
+        # STABILITY TEST (JACCARD)
+        # ------------------------------------------------------------------
+        model2 = IsolationForest(
+            n_estimators=200,
+            contamination=0.03,
+            random_state=99,
+        ).fit(X_train)
+
+        scores2 = model2.decision_function(X_test)
+
+        top1 = set(np.argsort(scores)[: int(0.03 * len(scores))])
+        top2 = set(np.argsort(scores2)[: int(0.03 * len(scores2))])
+
+        jaccard = len(top1 & top2) / len(top1 | top2)
+        print(f"🔁 Stability (Jaccard Overlap): {jaccard:.2%}")
+
+        # ------------------------------------------------------------------
+        # SAVE MODEL
+        # ------------------------------------------------------------------
+        joblib.dump(model, MODEL_PATH)
+        print(f"✅ Model saved to {MODEL_PATH}")
 
     except Exception as e:
         import traceback
-        print(f"❌ Error during training pipeline: {e}")
+        print("❌ Training failed")
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     fetch_data_and_train()
