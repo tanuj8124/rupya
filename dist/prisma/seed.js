@@ -1,21 +1,19 @@
-import { PrismaClient, TransactionType } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-import { Pool } from 'pg'
-import { hash } from 'bcryptjs'
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-const adapter = new PrismaPg(pool)
-const prisma = new PrismaClient({ adapter })
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const client_1 = require("@prisma/client");
+const adapter_pg_1 = require("@prisma/adapter-pg");
+const pg_1 = require("pg");
+const bcryptjs_1 = require("bcryptjs");
+const pool = new pg_1.Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new adapter_pg_1.PrismaPg(pool);
+const prisma = new client_1.PrismaClient({ adapter });
 async function main() {
     // Cleanup existing data
-    await prisma.transaction.deleteMany()
-    await prisma.behaviorSession.deleteMany()
-    await prisma.account.deleteMany()
-    await prisma.user.deleteMany()
-
-    const hashedPassword = await hash('password123', 10)
-
+    await prisma.transaction.deleteMany();
+    await prisma.behaviorSession.deleteMany();
+    await prisma.account.deleteMany();
+    await prisma.user.deleteMany();
+    const hashedPassword = await (0, bcryptjs_1.hash)('password123', 10);
     // Create Demo User (John Doe)
     const user = await prisma.user.create({
         data: {
@@ -39,8 +37,7 @@ async function main() {
         include: {
             accounts: true,
         },
-    })
-
+    });
     // Create Admin User
     await prisma.user.create({
         data: {
@@ -49,42 +46,40 @@ async function main() {
             name: 'Admin User',
             role: "ADMIN",
         },
-    })
-
+    });
     // Create Transactions
     const transactions = [
         {
             amount: 15.99,
-            type: TransactionType.EXPENSE,
+            type: client_1.TransactionType.EXPENSE,
             description: 'Netflix Subscription',
             date: new Date(), // Today
         },
         {
             amount: 5000.00,
-            type: TransactionType.INCOME,
+            type: client_1.TransactionType.INCOME,
             description: 'Salary Deposit',
             date: new Date(Date.now() - 86400000), // Yesterday
         },
         {
             amount: 18.50,
-            type: TransactionType.EXPENSE,
+            type: client_1.TransactionType.EXPENSE,
             description: 'Uber Ride',
             date: new Date(Date.now() - 2 * 86400000), // 2 days ago
         },
         {
             amount: 89.99,
-            type: TransactionType.EXPENSE,
+            type: client_1.TransactionType.EXPENSE,
             description: 'Amazon Purchase',
             date: new Date(Date.now() - 3 * 86400000), // 3 days ago
         },
         {
             amount: 350.00,
-            type: TransactionType.INCOME,
+            type: client_1.TransactionType.INCOME,
             description: 'Freelance Payment',
             date: new Date(Date.now() - 4 * 86400000), // 4 days ago
         },
-    ]
-
+    ];
     for (const tx of transactions) {
         await prisma.transaction.create({
             data: {
@@ -94,19 +89,17 @@ async function main() {
                 date: tx.date,
                 userId: user.id,
             },
-        })
+        });
     }
-
-    console.log('Seed data created successfully')
-    console.log('User ID:', user.id)
+    console.log('Seed data created successfully');
+    console.log('User ID:', user.id);
 }
-
 main()
     .then(async () => {
-        await prisma.$disconnect()
-    })
+    await prisma.$disconnect();
+})
     .catch(async (e) => {
-        console.error(e)
-        await prisma.$disconnect()
-        process.exit(1)
-    })
+    console.error(e);
+    await prisma.$disconnect();
+    process.exit(1);
+});

@@ -2,6 +2,9 @@
  docker exec -it e5365e120129 psql -U postgres -d securebank
  cd ml-service 
  uvicorn main:app --reload
+
+ npm install -D ts-node typescript
+
 SecureBank AI is a modern banking application that integrates financial transactions with a real-time, hybrid AI fraud detection system. It combines a deterministic **Rules Engine** with a probabilistic **Machine Learning Model (Isolation Forest)** to identify and block suspicious activities.
 
 ## 🧠 Working Principle: Hybrid Fraud Detection

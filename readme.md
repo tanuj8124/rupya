@@ -107,7 +107,7 @@ http://localhost:3000
 ### 7️⃣ Navigate to AI Service Directory
 
 ```bash
-cd ml-services
+cd ml-service
 ```
 
 ---

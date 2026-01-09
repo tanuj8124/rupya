@@ -1,0 +1,107 @@
+Rupya Bank Project - Complete Setup Guide
+This guide is designed to help you set up the Rupya Bank project from scratch on a new machine. Follow these steps sequentially to ensure a smooth installation.
+
+📋 Prerequisites
+Before you begin, ensure you have the following installed on your system:
+
+Node.js: Version 18 or higher. Download Node.js
+Docker Desktop: For running the database. Download Docker Desktop
+Python: Version 3.9 or higher. Download Python
+Git: For cloning the repository. Download Git
+🚀 Step 1: Initial Setup
+Clone the repository (if you haven't already):
+
+git clone <repository-url>
+cd rupya
+Environment Configuration: Copy the example configuration to create your local environment file:
+
+cp .env.example .env
+This will set up the correct database URL automatically.
+
+Note: Do not commit the 
+.env
+ file to version control.
+
+🐳 Step 2: Database Setup
+This project uses a PostgreSQL database running in a Docker container.
+
+Open Docker Desktop and ensure it is running.
+Open your terminal in the project root (rupya/).
+Start the database container:
+docker compose up -d
+Verify it's running:
+docker ps
+You should see a container named securebank-postgres with status Up.
+📦 Step 3: Backend & Frontend Setup (Next.js)
+Install Node dependencies:
+
+npm install
+Setup the Database Schema: This command creates the tables in your local database:
+
+npx prisma migrate dev
+If prompted for a migration name, you can type init and press Enter.
+
+Seed Initial Data (Optional but recommended): Populate the database with sample users and transactions:
+
+npm run seed
+Start the Development Server:
+
+npm run dev
+The application is now accessible at http://localhost:3000.
+
+🔄 Daily Startup Guide
+Do this every time you want to work on the project:
+
+Start Database (if not running):
+docker compose up -d
+Start Backend/Frontend:
+npm run dev
+Start AI Service (in a new terminal):
+cd ml-service
+uvicorn main:app --reload
+🤖 Step 4: AI/ML Service Setup
+The fraud detection system runs as a separate Python service.
+
+Open a new terminal window (keep the previous one running).
+
+Navigate to the ML service directory:
+
+cd ml-service
+(Note: Ensure you are in ml-service, not ml-services)
+
+Install Python Dependencies:
+
+pip install -r requirements.txt
+If pip is not recognized, try using pip3.
+
+Train the Model: Generate the initial fraud detection model:
+
+python train.py
+This will create a 
+fraud_model.pkl
+ file.
+
+Start the API Server:
+
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+The AI service is now running at http://localhost:8000.
+
+✅ Verification
+To verify everything is working:
+
+Go to http://localhost:3000 in your browser.
+Log in (if you seeded data, check 
+prisma/seed.ts
+ or database for credentials, usually created during seed).
+Navigate to the Transfer page and try a transaction. The AI service should evaluate it.
+🛠️ Common Troubleshooting
+Port 5432 already in use: If you have another PostgreSQL instance running, docker compose up might fail. Fix: Stop the other instance or edit 
+docker-compose.yml
+ to use a different port (e.g., "5433:5432") and update your 
+.env
+ file accordingly.
+
+Prisma Errors: If you see database connection errors, ensure the Docker container is running (docker ps).
+
+Python Module Not Found: Ensure you activated a virtual environment if you use one, or that pip install completed successfully.
+
